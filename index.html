@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Search and watch YouTube videos on Meta Ray-Ban Display glasses with Neural Band controls.">
+<meta name="mrbd-web-app-capable" content="yes">
+<title>GlassTube</title>
+<style>
+  :root {
+    --bg: #000;
+    --card: #15151f;
+    --text: #fff;
+    --muted: #a8a8b8;
+    --accent: #ff3b3b;
+    --focus: #4fd2ff;
+    --radius: 14px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #app { width: 100%; height: 100%; position: relative; }
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; }
+  .hidden { display: none !important; }
+
+  header { display: flex; align-items: center; gap: 10px; padding: 18px 22px 10px; flex: 0 0 auto; }
+  header h1 { font-size: 26px; font-weight: 700; }
+  header h1 span { color: var(--accent); }
+  header .sub { margin-left: auto; color: var(--muted); font-size: 15px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+
+  .content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px 18px 18px;
+    display: flex; flex-direction: column; gap: 10px; scrollbar-width: none; }
+  .content::-webkit-scrollbar { display: none; }
+
+  .focusable { outline: none; border: 3px solid transparent; }
+  .focusable:focus { border-color: var(--focus); box-shadow: 0 0 14px rgba(79,210,255,.45); }
+
+  .search-box:focus-within { border-color: var(--focus); box-shadow: 0 0 14px rgba(79,210,255,.45); }
+  .search-box input.focusable { border: none; box-shadow: none; }
+  .search-box { border: 3px solid transparent; display: flex; align-items: center; gap: 12px; background: var(--card);
+    border-radius: var(--radius); padding: 14px 16px; }
+  .search-box svg { flex: 0 0 auto; }
+  .search-box input { flex: 1; min-width: 0; background: transparent; border: none; color: var(--text);
+    font-size: 21px; outline: none; }
+  .search-box input::placeholder { color: var(--muted); }
+
+  .section-label { color: var(--muted); font-size: 15px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .06em; padding: 8px 4px 0; }
+
+  .item { display: flex; gap: 14px; align-items: center; width: 100%; text-align: left;
+    background: var(--card); color: var(--text); border-radius: var(--radius); padding: 10px;
+    font: inherit; cursor: pointer; }
+  .item img { width: 150px; height: 84px; object-fit: cover; border-radius: 10px; flex: 0 0 auto;
+    background: #222; }
+  .item .meta { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .item .title { font-size: 18px; font-weight: 600; line-height: 1.25; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .item .channel { font-size: 15px; color: var(--muted); white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
+
+  .btn { width: 100%; background: var(--card); color: var(--text); border-radius: var(--radius);
+    padding: 14px; font: inherit; font-size: 18px; font-weight: 600; cursor: pointer; text-align: center; }
+  .btn.primary { background: var(--accent); }
+
+  .msg { color: var(--muted); font-size: 18px; text-align: center; padding: 30px 10px; line-height: 1.4; }
+  .msg.error { color: #ff8a8a; }
+
+  /* Player */
+  #player-screen { background: #000; }
+  #player-wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #player-wrap iframe, #yt-player { width: 100%; aspect-ratio: 16 / 9; height: auto; max-height: 100%;
+    border: 0; pointer-events: none; }
+  #player-surface { position: absolute; inset: 0; border: none; background: transparent; }
+  #player-surface:focus { box-shadow: none; border-color: transparent; }
+  #osd { position: absolute; left: 0; right: 0; bottom: 0; padding: 16px 20px 18px;
+    background: linear-gradient(transparent, rgba(0,0,0,.9) 40%); transition: opacity .3s; }
+  #osd.faded { opacity: 0; }
+  #osd .now { font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #osd .bar { height: 6px; background: #333; border-radius: 3px; margin: 10px 0 8px; overflow: hidden; }
+  #osd .fill { height: 100%; width: 0; background: var(--accent); }
+  #osd .row { display: flex; justify-content: space-between; color: var(--muted); font-size: 14px; }
+  #toast { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); background: rgba(20,20,30,.92);
+    padding: 10px 18px; border-radius: 999px; font-size: 18px; font-weight: 600; opacity: 0; transition: opacity .2s;
+    white-space: nowrap; }
+  #toast.show { opacity: 1; }
+  #player-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 30px; text-align: center; font-size: 19px; line-height: 1.4; color: #ff8a8a; }
+
+  /* Setup (mostly used on the phone) */
+  #setup .content { gap: 14px; }
+  #setup p, #setup li { font-size: 16px; line-height: 1.45; color: #ddd; }
+  #setup ol { padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
+  #setup a { color: var(--focus); }
+  #setup .field { width: 100%; background: var(--card); border: 2px solid #333; color: var(--text);
+    border-radius: 10px; padding: 12px; font-size: 16px; }
+  #setup .note { font-size: 14px; color: var(--muted); }
+  #setup a.btn { display: block; text-decoration: none; color: var(--text); }
+  #setup .btn.disabled { opacity: .4; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Setup: shown when no API key is saved -->
+  <div id="setup" class="screen hidden">
+    <header><h1>Glass<span>Tube</span> setup</h1></header>
+    <div class="content">
+      <p><b>On your glasses?</b> Open this page on your phone to finish setup, then re-add it to your glasses.</p>
+      <p><b>On your phone:</b></p>
+      <ol>
+        <li>Get a free YouTube API key from <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Google Cloud</a> (enable "YouTube Data API v3", then Credentials → Create API key).</li>
+        <li>Paste it here:</li>
+      </ol>
+      <input id="key-input" class="field focusable" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="AIza..." aria-label="YouTube API key">
+      <a id="add-link" class="btn primary focusable disabled" href="#">Add to my glasses</a>
+      <p class="note">This opens the Meta AI app and adds GlassTube to your glasses with your key built in. The key is only stored in the app's link and on your glasses.</p>
+    </div>
+  </div>
+
+  <!-- Home: search + history -->
+  <div id="home" class="screen hidden">
+    <header><h1>Glass<span>Tube</span></h1></header>
+    <div class="content" id="home-content">
+      <label class="search-box" id="search-box">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a8a8b8" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        <input id="search-input" type="search" enterkeyhint="search" placeholder="Search YouTube" aria-label="Search YouTube" class="focusable">
+      </label>
+      <div id="home-list"></div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="results" class="screen hidden">
+    <header><h1>Glass<span>Tube</span></h1><span class="sub" id="results-query"></span></header>
+    <div class="content" id="results-list"></div>
+  </div>
+
+  <!-- Player -->
+  <div id="player-screen" class="screen hidden">
+    <div id="player-wrap"><div id="yt-player"></div></div>
+    <button id="player-surface" class="focusable" aria-label="Video player. Pinch to play or pause, swipe left or right to skip, swipe up or down for volume."></button>
+    <div id="player-msg" class="hidden"></div>
+    <div id="toast"></div>
+    <div id="osd">
+      <div class="now" id="osd-title"></div>
+      <div class="bar"><div class="fill" id="osd-fill"></div></div>
+      <div class="row"><span id="osd-time">0:00 / 0:00</span><span>pinch ⏯ · ◀▶ 10s · ▲▼ vol</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- Storage (guarded) ----------
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+
+  // API key can arrive in the link (?key=...) used to add the app to the glasses.
+  var params = new URLSearchParams(location.search);
+  var urlKey = params.get('key');
+  if (urlKey) store.set('gt_key', urlKey.trim());
+  var apiKey = urlKey || store.get('gt_key', '');
+
+  var $ = function (id) { return document.getElementById(id); };
+  var screens = ['setup', 'home', 'results', 'player-screen'];
+  var current = null;
+  var lastFocus = {};
+
+  function show(id, focusEl) {
+    if (current) lastFocus[current] = document.activeElement;
+    screens.forEach(function (s) { $(s).classList.toggle('hidden', s !== id); });
+    current = id;
+    var target = focusEl || lastFocus[id];
+    if (!target || !document.contains(target) || target.offsetParent === null) target = focusables()[0];
+    if (target) target.focus();
+  }
+
+  // ---------- D-pad focus ----------
+  function focusables() {
+    if (!current) return [];
+    return Array.prototype.slice.call($(current).querySelectorAll('.focusable')).filter(function (el) {
+      return el.offsetParent !== null && !el.classList.contains('disabled');
+    });
+  }
+
+  function moveFocus(delta) {
+    var list = focusables();
+    if (!list.length) return;
+    var i = list.indexOf(document.activeElement);
+    var n = i < 0 ? 0 : Math.max(0, Math.min(list.length - 1, i + delta));
+    list[n].focus();
+    list[n].scrollIntoView({ block: 'nearest' });
+  }
+
+  function decode(s) {
+    var t = document.createElement('textarea');
+    t.innerHTML = s;
+    return t.value;
+  }
+
+  function videoItem(v) {
+    var b = document.createElement('button');
+    b.className = 'item focusable';
+    var img = document.createElement('img');
+    img.alt = '';
+    img.loading = 'lazy';
+    img.src = v.thumb;
+    var meta = document.createElement('span');
+    meta.className = 'meta';
+    var t = document.createElement('span'); t.className = 'title'; t.textContent = v.title;
+    var c = document.createElement('span'); c.className = 'channel'; c.textContent = v.channel;
+    meta.appendChild(t); meta.appendChild(c);
+    b.appendChild(img); b.appendChild(meta);
+    b.addEventListener('click', function () { play(v); });
+    return b;
+  }
+
+  function message(container, text, isError) {
+    var d = document.createElement('div');
+    d.className = 'msg' + (isError ? ' error' : '');
+    d.textContent = text;
+    container.appendChild(d);
+  }
+
+  // ---------- Home ----------
+  function renderHome() {
+    var list = $('home-list');
+    list.innerHTML = '';
+    var hist = store.get('gt_history', []);
+    var searches = store.get('gt_searches', []);
+    if (searches.length) {
+      var l1 = document.createElement('div'); l1.className = 'section-label'; l1.textContent = 'Recent searches';
+      list.appendChild(l1);
+      searches.slice(0, 4).forEach(function (q) {
+        var b = document.createElement('button');
+        b.className = 'btn focusable';
+        b.style.textAlign = 'left';
+        b.textContent = q;
+        b.addEventListener('click', function () { search(q); });
+        list.appendChild(b);
+      });
+    }
+    if (hist.length) {
+      var l2 = document.createElement('div'); l2.className = 'section-label'; l2.textContent = 'Recently watched';
+      list.appendChild(l2);
+      hist.slice(0, 8).forEach(function (v) { list.appendChild(videoItem(v)); });
+    }
+    if (!hist.length && !searches.length) {
+      message(list, 'Pinch the search bar, then write or say what you want to watch.');
+    }
+  }
+
+  // Search box: pinch/Enter opens the glasses' handwriting/voice composer.
+  var searchInput = $('search-input');
+  searchInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && searchInput.value.trim()) { e.preventDefault(); e.stopPropagation(); search(searchInput.value); }
+  });
+  searchInput.addEventListener('change', function () {
+    if (searchInput.value.trim()) search(searchInput.value);
+  });
+
+  // ---------- Search ----------
+  var searchCtl = null;
+  var lastQuery = '';
+  var nextPage = '';
+
+  function search(q, pageToken) {
+    q = q.trim();
+    if (!q) return;
+    lastQuery = q;
+    if (!pageToken) {
+      var s = store.get('gt_searches', []).filter(function (x) { return x.toLowerCase() !== q.toLowerCase(); });
+      s.unshift(q); store.set('gt_searches', s.slice(0, 10));
+      searchInput.value = '';
+      searchInput.blur();
+    }
+    var list = $('results-list');
+    $('results-query').textContent = '"' + q + '"';
+    if (!pageToken) {
+      list.innerHTML = '';
+      message(list, 'Searching…');
+      show('results', null);
+    }
+    if (searchCtl) searchCtl.abort();
+    searchCtl = ('AbortController' in window) ? new AbortController() : null;
+
+    var url = 'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=10'
+      + '&q=' + encodeURIComponent(q) + '&key=' + encodeURIComponent(apiKey)
+      + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+
+    fetch(url, searchCtl ? { signal: searchCtl.signal } : {})
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          var reason = res.j && res.j.error && res.j.error.errors && res.j.error.errors[0] && res.j.error.errors[0].reason;
+          var text = reason === 'quotaExceeded' ? 'Daily search limit reached. Try again tomorrow.'
+            : (reason === 'keyInvalid' || reason === 'badRequest') ? 'Your API key isn’t working. Redo setup on your phone.'
+            : 'Search failed. Check your connection and try again.';
+          throw new Error(text);
+        }
+        var items = (res.j.items || []).filter(function (it) { return it.id && it.id.videoId; }).map(function (it) {
+          var th = it.snippet.thumbnails || {};
+          return {
+            id: it.id.videoId,
+            title: decode(it.snippet.title || ''),
+            channel: decode(it.snippet.channelTitle || ''),
+            thumb: (th.medium || th['default'] || {}).url || ''
+          };
+        });
+        nextPage = res.j.nextPageToken || '';
+        var more = list.querySelector('.more');
+        if (more) more.remove();
+        if (!pageToken) list.innerHTML = '';
+        if (!items.length && !pageToken) { message(list, 'No videos found.'); return; }
+        var firstNew = null;
+        items.forEach(function (v) { var el = videoItem(v); if (!firstNew) firstNew = el; list.appendChild(el); });
+        if (nextPage) {
+          var m = document.createElement('button');
+          m.className = 'btn focusable more';
+          m.textContent = 'More results';
+          m.addEventListener('click', function () { m.textContent = 'Loading…'; search(lastQuery, nextPage); });
+          list.appendChild(m);
+        }
+        if (current === 'results' && firstNew) { firstNew.focus(); firstNew.scrollIntoView({ block: 'nearest' }); }
+      })
+      .catch(function (err) {
+        if (err && err.name === 'AbortError') return;
+        if (!pageToken) list.innerHTML = '';
+        message(list, err.message || 'Search failed.', true);
+      });
+  }
+
+  // ---------- Player ----------
+  var player = null, playerReady = false, pendingVideo = null, nowPlaying = null;
+  var ticker = null, osdTimer = null, toastTimer = null;
+
+  function loadYT() {
+    if (window.YT && window.YT.Player) return;
+    if (document.getElementById('yt-api')) return;
+    var s = document.createElement('script');
+    s.id = 'yt-api';
+    s.src = 'https://www.youtube.com/iframe_api';
+    s.onerror = function () { playerError('Couldn’t load the YouTube player. Check your connection.'); };
+    document.head.appendChild(s);
+  }
+
+  window.onYouTubeIframeAPIReady = function () {
+    player = new YT.Player('yt-player', {
+      width: '100%', height: '100%',
+      playerVars: { autoplay: 1, controls: 0, playsinline: 1, rel: 0, fs: 0, disablekb: 1, iv_load_policy: 3, origin: location.origin },
+      events: {
+        onReady: function () {
+          playerReady = true;
+          var f = player.getIframe(); f.setAttribute('tabindex', '-1');
+          if (pendingVideo) { player.loadVideoById(pendingVideo.id); pendingVideo = null; }
+        },
+        onStateChange: function (e) {
+          if (e.data === YT.PlayerState.PLAYING) { startTicker(); osd(false); }
+          if (e.data === YT.PlayerState.PAUSED) { osd(true, true); }
+          if (e.data === YT.PlayerState.ENDED) { osd(true, true); toast('Ended'); }
+        },
+        onError: function (e) {
+          var code = e.data;
+          playerError(code === 101 || code === 150 || code === 153
+            ? 'This video’s owner doesn’t allow it to play outside YouTube. Try another one.'
+            : 'This video can’t be played. Try another one.');
+        }
+      }
+    });
+  };
+
+  function playerError(text) {
+    var m = $('player-msg'); m.textContent = text; m.classList.remove('hidden');
+  }
+
+  function play(v) {
+    nowPlaying = v;
+    var hist = store.get('gt_history', []).filter(function (x) { return x.id !== v.id; });
+    hist.unshift(v); store.set('gt_history', hist.slice(0, 20));
+    $('player-msg').classList.add('hidden');
+    $('osd-title').textContent = v.title;
+    $('osd-fill').style.width = '0';
+    $('osd-time').textContent = 'Loading…';
+    show('player-screen', $('player-surface'));
+    osd(true);
+    if (playerReady) player.loadVideoById(v.id);
+    else { pendingVideo = v; loadYT(); }
+  }
+
+  function stopPlayer() {
+    try { if (playerReady) player.pauseVideo(); } catch (e) {}
+    stopTicker();
+  }
+
+  function fmt(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (x < 10 ? '0' : '') + x;
+  }
+
+  function updateOsd() {
+    if (!playerReady) return;
+    var t = player.getCurrentTime() || 0, d = player.getDuration() || 0;
+    $('osd-time').textContent = fmt(t) + ' / ' + fmt(d);
+    $('osd-fill').style.width = d ? (100 * t / d) + '%' : '0';
+  }
+  function startTicker() { stopTicker(); updateOsd(); ticker = setInterval(updateOsd, 1000); }
+  function stopTicker() { if (ticker) { clearInterval(ticker); ticker = null; } }
+
+  function osd(visible, sticky) {
+    var el = $('osd');
+    clearTimeout(osdTimer);
+    if (visible) {
+      el.classList.remove('faded'); updateOsd();
+      if (!sticky) osdTimer = setTimeout(function () { el.classList.add('faded'); }, 3000);
+    } else {
+      osdTimer = setTimeout(function () { el.classList.add('faded'); }, 3000);
+    }
+  }
+
+  function toast(text) {
+    var t = $('toast'); t.textContent = text; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove('show'); }, 1200);
+  }
+
+  function playerKey(e) {
+    if (!playerReady) { if (e.key === 'Escape') { stopPlayer(); back(); } return; }
+    var st = player.getPlayerState();
+    switch (e.key) {
+      case 'Enter': case ' ':
+        if (st === YT.PlayerState.PLAYING) { player.pauseVideo(); toast('❚❚ Paused'); }
+        else { player.playVideo(); toast('▶ Play'); }
+        break;
+      case 'ArrowRight':
+        player.seekTo(Math.min((player.getDuration() || 0) - 1, player.getCurrentTime() + 10), true); toast('+10s'); osd(true); break;
+      case 'ArrowLeft':
+        player.seekTo(Math.max(0, player.getCurrentTime() - 10), true); toast('−10s'); osd(true); break;
+      case 'ArrowUp':
+        if (player.isMuted()) player.unMute();
+        player.setVolume(Math.min(100, player.getVolume() + 10)); toast('Volume ' + player.getVolume()); break;
+      case 'ArrowDown':
+        player.setVolume(Math.max(0, player.getVolume() - 10)); toast('Volume ' + player.getVolume()); break;
+      case 'Escape': case 'Backspace': case 'GoBack': case 'BrowserBack':
+        stopPlayer(); back(); break;
+      default: return;
+    }
+    e.preventDefault();
+  }
+  $('player-surface').addEventListener('click', function (e) {
+    // Pinch on the focused surface arrives as a click (keyboard Enter is handled in playerKey).
+    if (e.detail === 0) return;
+    playerKey({ key: 'Enter', preventDefault: function () {} });
+  });
+
+  // ---------- Back / global keys ----------
+  function back() {
+    if (current === 'player-screen') show(lastQuery && $('results-list').children.length ? 'results' : 'home');
+    else if (current === 'results') { renderHome(); show('home'); }
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (current === 'player-screen') { playerKey(e); return; }
+    var inText = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (inText && e.key !== 'Escape' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    switch (e.key) {
+      case 'ArrowDown': case 'ArrowRight': e.preventDefault(); moveFocus(1); break;
+      case 'ArrowUp': case 'ArrowLeft': e.preventDefault(); moveFocus(-1); break;
+      case 'Escape': case 'GoBack': case 'BrowserBack':
+        if (inText) { e.preventDefault(); return; }
+        if (current !== 'home' && current !== 'setup') { e.preventDefault(); back(); }
+        break;
+    }
+  });
+
+  // Pause when the app is hidden.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stopPlayer();
+  });
+
+  // ---------- Setup screen ----------
+  var keyInput = $('key-input'), addLink = $('add-link');
+  function updateAddLink() {
+    var k = keyInput.value.trim();
+    var ok = /^[A-Za-z0-9_\-]{30,}$/.test(k);
+    addLink.classList.toggle('disabled', !ok);
+    if (ok) {
+      var appUrl = location.origin + location.pathname + '?key=' + encodeURIComponent(k);
+      addLink.href = 'fb-viewapp://web_app_deep_link?appName=' + encodeURIComponent('GlassTube') + '&appUrl=' + encodeURIComponent(appUrl);
+    } else addLink.href = '#';
+  }
+  keyInput.addEventListener('input', updateAddLink);
+  addLink.addEventListener('click', function (e) { if (addLink.classList.contains('disabled')) e.preventDefault(); });
+
+  // ---------- Start ----------
+  if (apiKey) { renderHome(); show('home'); }
+  else { show('setup'); }
+  if (apiKey) setTimeout(loadYT, 1500); // warm the player after first paint
+})();
+</script>
+</body>
+</html>
